@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+# Standart, System and Third Party
+import requests
+import shutil
+from pinatapy import PinataPy
+from tempfile import NamedTemporaryFile
+
+# ROS
+import rospy
+from std_msgs.msg import String
+from std_srvs.srv import Empty
+
+# Robonomics communication
+from robonomics_msgs.msg import Offer, Demand
+from ethereum_common.msg import Address, UInt256
+from ethereum_common.srv import Accounts, BlockNumber
+from ipfs_common.msg import Multihash
+from ipfs_common.ipfs_rosbag import IpfsRosBag
+
+
+class TraderNode:
+
+    def __init__(self):
+        rospy.init_node('trader')
+        rospy.loginfo('Launching trader node...')
+
+        rospy.wait_for_service('/eth/current_block')
+        rospy.wait_for_service('/eth/accounts')
+        self.accounts = rospy.ServiceProxy('/eth/accounts', Accounts)()
+        rospy.loginfo(str(self.accounts))  # AIRA ethereum addresses
+
+        self.signing_demand = rospy.Publisher('/liability/infochan/eth/signing/demand', Demand, queue_size=128)
+        self.signing_offer = rospy.Publisher('/liability/infochan/eth/signing/offer', Offer, queue_size=128)
+
+        rospy.Subscriber('/liability/infochan/incoming/offer', Offer, self.on_incoming_offer)
+
+        self.MODEL = rospy.get_param("~model")
+        self.TOKEN = rospy.get_param("~token")
+        self.base_url = rospy.get_param("~base_url")
+
+        rospy.Service("/takePhoto", Empty, self.take_photo)
+
+        pinata_api_key = rospy.get_param("~pinata_api_key")
+        pinata_secret_api_key = rospy.get_param("~pinata_secret_api_key")
+
+        self.pinata = PinataPy(pinata_api_key, pinata_secret_api_key)
+
+        rospy.loginfo('Trader node is launched')
+
+    def take_photo(self, req):
+        rospy.loginfo("Taking photo...")
+        response = requests.get(self.base_url + "photo")
+
+        if response.status_code == 200:
+            data = response.json()
+            rospy.loginfo(data)
+
+            overview_res = requests.get(self.base_url + data["overview"], stream=True)
+            overview_res.raw.decode_content = True
+            with NamedTemporaryFile(delete=False) as f:
+                shutil.copyfileobj(overview_res.raw, f)
+                overview_hash = self.pinata.pin_file_to_ipfs(f.name)
+                overview_hash = overview_hash["IpfsHash"]
+                rospy.loginfo(f"Finish overview: {overview_hash}")
+
+            rospy.sleep(1)
+
+            thumb_res = requests.get(self.base_url + data["thumbnail"], stream=True)
+            thumb_res.raw.decode_content = True
+            with NamedTemporaryFile(delete=False) as f:
+                shutil.copyfileobj(thumb_res.raw, f)
+                thumb_hash = self.pinata.pin_file_to_ipfs(f.name)
+                thumb_hash = thumb_hash["IpfsHash"]
+                rospy.loginfo(f"Finish thumbnail: {thumb_hash}")
+
+            rospy.sleep(1)
+
+            fp1_res = requests.get(self.base_url + data["fp1"], stream=True)
+            fp1_res.raw.decode_content = True
+            with NamedTemporaryFile(delete=False) as f:
+                shutil.copyfileobj(fp1_res.raw, f)
+                fp1_hash = self.pinata.pin_file_to_ipfs(f.name)
+                fp1_hash = fp1_hash["IpfsHash"]
+                rospy.loginfo(f"Finish fp1: {fp1_hash}")
+
+            rospy.sleep(1)
+
+            fp2_res = requests.get(self.base_url + data["fp2"], stream=True)
+            fp2_res.raw.decode_content = True
+            with NamedTemporaryFile(delete=False) as f:
+                shutil.copyfileobj(fp2_res.raw, f)
+                fp2_hash = self.pinata.pin_file_to_ipfs(f.name)
+                fp2_hash = fp2_hash["IpfsHash"]
+                rospy.loginfo(f"Finish fp2: {fp2_hash}")
+
+            rospy.sleep(1)
+
+            with NamedTemporaryFile(mode="w", delete=False) as f:
+                f.write(data["log"])
+                f.close()
+                log_hash = self.pinata.pin_file_to_ipfs(f.name)
+                log_hash = log_hash["IpfsHash"]
+
+            data = {
+                    "/email": [ String("vadim.manaenko@aira.life") ],
+                    "/meta": [ String("Veracity Automation Demo") ],
+                    "/images": [ String(overview_hash),
+                                 String(thumb_hash),
+                                 String(fp1_hash),
+                                 String(fp2_hash) ],
+                    "/info": [ String(log_hash) ]
+                    }
+
+            objective = IpfsRosBag(messages=data).multihash
+            self.pinata.add_hash_to_pin_queue(objective.multihash)
+            rospy.loginfo(f"Objective {objective}")
+
+            # self.make_demand(objective, UInt256('0'))
+
+    def on_incoming_offer(self, incoming: Offer):
+        rospy.loginfo(f"Incoming offer {incoming}...")
+        if (incoming.model.multihash == self.MODEL and incoming.token.address == self.TOKEN):
+            rospy.loginfo('For my model and token!')
+            if incoming.cost.uint256 != "0":
+                self.make_demand(incoming.objective, incoming.cost)
+        else:
+            rospy.loginfo('Doesn\'t fit my model or token, skip it')
+
+    def make_deadline(self) -> UInt256:
+        lifetime = int(rospy.get_param('~order_lifetime'))
+        deadline = rospy.ServiceProxy('/eth/current_block', BlockNumber)().number + lifetime
+        return UInt256(str(deadline))
+
+    def make_demand(self, objective: Multihash, cost: UInt256):
+        rospy.loginfo('Making demand...')
+
+        demand = Demand()
+        demand.model = Multihash(self.MODEL)
+        demand.objective = objective
+        demand.token = Address(self.TOKEN)
+        demand.cost = cost
+        demand.lighthouse = Address(rospy.get_param('~lighthouse'))
+        demand.validatorFee = UInt256("0")
+        demand.validator = Address("0x0000000000000000000000000000000000000000")
+        demand.deadline = self.make_deadline()
+
+        self.signing_demand.publish(demand)
+        rospy.loginfo(demand)
+
+    def spin(self):
+        rospy.spin()
+
+
+if __name__ == '__main__':
+    TraderNode().spin()
