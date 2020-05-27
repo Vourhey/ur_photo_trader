@@ -32,9 +32,6 @@ class TraderNode:
         rospy.loginfo(str(self.accounts))  # AIRA ethereum addresses
 
         self.signing_demand = rospy.Publisher('/liability/infochan/eth/signing/demand', Demand, queue_size=128)
-        self.signing_offer = rospy.Publisher('/liability/infochan/eth/signing/offer', Offer, queue_size=128)
-
-        rospy.Subscriber('/liability/infochan/incoming/offer', Offer, self.on_incoming_offer)
 
         self.MODEL = rospy.get_param("~model")
         self.TOKEN = rospy.get_param("~token")
@@ -117,16 +114,7 @@ class TraderNode:
             self.pinata.add_hash_to_pin_queue(objective.multihash)
             rospy.loginfo(f"Objective {objective}")
 
-            # self.make_demand(objective, UInt256('0'))
-
-    def on_incoming_offer(self, incoming: Offer):
-        rospy.loginfo(f"Incoming offer {incoming}...")
-        if (incoming.model.multihash == self.MODEL and incoming.token.address == self.TOKEN):
-            rospy.loginfo('For my model and token!')
-            if incoming.cost.uint256 != "0":
-                self.make_demand(incoming.objective, incoming.cost)
-        else:
-            rospy.loginfo('Doesn\'t fit my model or token, skip it')
+            self.make_demand(objective, UInt256('0'))
 
     def make_deadline(self) -> UInt256:
         lifetime = int(rospy.get_param('~order_lifetime'))
