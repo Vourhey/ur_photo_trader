@@ -10,7 +10,7 @@ from tempfile import NamedTemporaryFile
 # ROS
 import rospy
 from std_msgs.msg import String
-from std_srvs.srv import Empty
+from std_srvs.srv import Empty, EmptyRequest
 
 # Robonomics communication
 from robonomics_msgs.msg import Offer, Demand
