@@ -5,6 +5,7 @@
     <node ns="veracity" name="trader" pkg="veracity_trader" type="trader_node" output="screen">
         <param name="lighthouse" value="0xD40AC7F1e5401e03D00F5aeC1779D8e5Af4CF9f1" />
         <param name="model" value="QmUCa53D62XeWmm519iwsQ7UwmTd6ihwpvcyP9hW35fZ1m" />
+        <param name="service_mode" value="QmZFSefNK4p1bWxWHS56uahRGfcteYizgZ3GJQMnYmVfLw" />
         <param name="token" value="0x6B175474E89094C44Da98b954EedeAC495271d0F" />
         <param name="base_url" value="$(arg base_url)" />
         <param name="pinata_api_key" value="$(arg pinata_api_key)" />

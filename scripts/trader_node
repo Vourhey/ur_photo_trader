@@ -31,9 +31,11 @@ class TraderNode:
         self.accounts = rospy.ServiceProxy('/eth/accounts', Accounts)()
         rospy.loginfo(str(self.accounts))  # AIRA ethereum addresses
 
+        self.incoming_demand = rospy.Subscriber("/liability/infochan/incoming/demand", Demand, self.on_incoming_demand)
         self.signing_demand = rospy.Publisher('/liability/infochan/eth/signing/demand', Demand, queue_size=128)
 
         self.MODEL = rospy.get_param("~model")
+        self.SERVICE_MODEL = rospy.get_param("~service_model")
         self.TOKEN = rospy.get_param("~token")
         self.base_url = rospy.get_param("~base_url")
 
@@ -45,6 +47,10 @@ class TraderNode:
         self.pinata = PinataPy(pinata_api_key, pinata_secret_api_key)
 
         rospy.loginfo('Trader node is launched')
+
+    def on_incoming_demand(self, demand: Demand):
+        if demand.model.multihash == self.SERVICE_MODEL:
+            self.take_photo(EmptyRequest())
 
     def take_photo(self, req):
         rospy.loginfo("Taking photo...")
